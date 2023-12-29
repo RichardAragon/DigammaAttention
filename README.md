@@ -12,18 +12,19 @@ Provides a clear and concise implementation for ease of understanding and modifi
 Getting Started:
 
 Install dependencies:
+
 Bash
+
 pip install torch transformers
-Use code with caution. Learn more
+
 Import the model:
-Python
 from llm import LLM
-Use code with caution. Learn more
+
 Instantiate the model:
-Python
+
 model = LLM(vocab_size, embed_dim, hidden_dim, num_layers, dropout, use_digamma=True)
-Use code with caution. Learn more
+
 Pass input sequences to the model:
-Python
+
 logits = model(inputs)
-Use code with caution. Learn more
+
