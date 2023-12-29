@@ -1,0 +1,96 @@
+import torch
+from torch import nn
+import math
+import numpy as np
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn.functional import softmax
+
+# Helper functions
+def stable_digamma(x):
+    """Stabilized implementation of digamma."""
+    return torch.lgamma(x + 1) - torch.lgamma(1)
+
+def safe_sine(x):
+    """Safe computation of sine using tanh approximation."""
+    return 0.5 * (torch.tanh(math.pi / 2 * x) + 1)
+
+class PositionalEncoding(nn.Module):
+    """Positional encoding for sequences."""
+    
+    def __init__(self, d_model, max_seq_len=5000):
+        super().__init__()
+        
+        pe = torch.zeros(max_seq_len, d_model)
+        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return x
+
+class LLM(nn.Module):
+    """Language Learning Model with optional digamma integration."""
+
+    def __init__(self, vocab_size, embed_dim, hidden_dim, num_layers, dropout, use_digamma=False):
+        super().__init__()
+        
+        self.use_digamma = use_digamma
+        
+        # Define the embedding layer
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
+        
+        # Add positional encoding
+        self.pos_encoding = PositionalEncoding(embed_dim)
+        
+        # Create the transformer encoder
+        self.encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(embed_dim, 8, hidden_dim, dropout),
+            num_layers
+        )
+        
+        # Final linear projection layer
+        self.fc = nn.Linear(embed_dim, vocab_size)
+        
+        # Attention mask creation
+        self.attn_mask = None
+
+    def set_attention_mask(self, seq_length):
+        """Create an upper triangular matrix for causality constraint."""
+        attn_shape = (seq_length, seq_length)
+        distance_matrix = torch.diag(torch.ones(seq_length)).to(self.device)
+        lower_triangle = torch.tril(distance_matrix, diagonal=-1)
+        ones = torch.ones(*attn_shape).to(self.device)
+        paddings = torch.cat((lower_triangle, ones), dim=-1)
+        self.attn_mask = ~paddings
+
+    def forward(self, inputs):
+        batch_size, seq_length = inputs.size()
+        
+        # Prepare embeddings
+        embeddings = self.embedding(inputs)
+        
+        # Optionally apply digamma
+        if self.use_digamma:
+            embeddings = stable_digamma(embeddings)
+            
+        # Safe sine operation
+        embeddings = safe_sine(embeddings)
+        
+        # Add positional encoding
+        embeddings = self.pos_encoding(embeddings)
+        
+        # Set attention mask
+        if self.attn_mask is None or self.attn_mask.size(0) != seq_length:
+            self.set_attention_mask(seq_length)
+        embeddings *= self.attn_mask.unsqueeze(-1).repeat(1, 1,
+        # Pass through Transformer Encoder
+        encoded_outputs = self.encoder(embeddings)
+        
+        # Project to output space and compute logits
+        logits = self.fc(encoded_outputs[:, 0])
+        
+        return logits
